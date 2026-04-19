@@ -52,25 +52,9 @@ public class WalletService {
                               Long toUserId,
                               BigDecimal amount) {
 
-        // 1️⃣ Check existing transaction
         Transaction txn = transactionRepository.findById(idempotencyKey).orElse(null);
 
-        if (txn != null) {
-
-            if (txn.getStatus() == TransactionStatus.SUCCESS) {
-                return; // already processed
-            }
-
-            if (txn.getStatus() == TransactionStatus.PROCESSING) {
-                throw new RuntimeException("Transaction already in progress");
-            }
-
-            if (txn.getStatus() == TransactionStatus.FAILED) {
-                // retry allowed → continue
-            }
-
-        } else {
-            // create new transaction
+        if (txn == null) {
             txn = Transaction.builder()
                     .idempotencyKey(idempotencyKey)
                     .fromUserId(fromUserId)
@@ -83,11 +67,8 @@ public class WalletService {
         }
 
         try {
-            // 2️⃣ Mark as PROCESSING
-            txn.setStatus(TransactionStatus.PROCESSING);
-            transactionRepository.save(txn);
 
-            // 🔒 3️⃣ Ordered locking (deadlock prevention)
+            // 🔒 Ordered locking
             Long first = Math.min(fromUserId, toUserId);
             Long second = Math.max(fromUserId, toUserId);
 
@@ -100,43 +81,77 @@ public class WalletService {
             Wallet sender = fromUserId.equals(first) ? firstWallet : secondWallet;
             Wallet receiver = toUserId.equals(first) ? firstWallet : secondWallet;
 
-            // 💸 4️⃣ Validate
-            if (sender.getBalance().compareTo(amount) < 0) {
-                throw new RuntimeException("Insufficient balance");
+            // =========================
+            // 🧠 STEP 1: DEBIT (IDEMPOTENT)
+            // =========================
+
+            if (txn.getStatus() == TransactionStatus.INITIATED) {
+
+                boolean alreadyDebited = ledgerRepository
+                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.DEBIT);
+
+                if (!alreadyDebited) {
+
+                    if (sender.getBalance().compareTo(amount) < 0) {
+                        throw new RuntimeException("Insufficient balance");
+                    }
+
+                    sender.setBalance(sender.getBalance().subtract(amount));
+                    walletRepository.save(sender);
+
+                    Ledger debit = Ledger.builder()
+                            .walletId(sender.getId())
+                            .transactionId(idempotencyKey)
+                            .amount(amount)
+                            .type(TransactionType.DEBIT)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+
+                    ledgerRepository.save(debit);
+                }
+
+                txn.setStatus(TransactionStatus.DEBIT_DONE);
+                transactionRepository.save(txn);
             }
 
-            // ➖ ➕ 5️⃣ Update balances
-            sender.setBalance(sender.getBalance().subtract(amount));
-            receiver.setBalance(receiver.getBalance().add(amount));
+            // =========================
+            // 🧠 STEP 2: CREDIT (IDEMPOTENT)
+            // =========================
 
-            walletRepository.save(sender);
-            walletRepository.save(receiver);
+            if (txn.getStatus() == TransactionStatus.DEBIT_DONE) {
 
-            // 📒 6️⃣ Ledger entries
-            Ledger debit = Ledger.builder()
-                    .walletId(sender.getId())
-                    .amount(amount)
-                    .type(TransactionType.DEBIT)
-                    .createdAt(LocalDateTime.now())
-                    .build();
+                boolean alreadyCredited = ledgerRepository
+                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.CREDIT);
 
-            Ledger credit = Ledger.builder()
-                    .walletId(receiver.getId())
-                    .amount(amount)
-                    .type(TransactionType.CREDIT)
-                    .createdAt(LocalDateTime.now())
-                    .build();
+                if (!alreadyCredited) {
 
-            ledgerRepository.save(debit);
-            ledgerRepository.save(credit);
+                    receiver.setBalance(receiver.getBalance().add(amount));
+                    walletRepository.save(receiver);
 
-            // ✅ 7️⃣ Mark success
+                    Ledger credit = Ledger.builder()
+                            .walletId(receiver.getId())
+                            .transactionId(idempotencyKey)
+                            .amount(amount)
+                            .type(TransactionType.CREDIT)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+
+                    ledgerRepository.save(credit);
+                }
+
+                txn.setStatus(TransactionStatus.CREDIT_DONE);
+                transactionRepository.save(txn);
+            }
+
+            // =========================
+            // 🧠 FINAL STEP
+            // =========================
+
             txn.setStatus(TransactionStatus.SUCCESS);
             transactionRepository.save(txn);
 
         } catch (Exception e) {
 
-            // ❌ 8️⃣ Mark failure
             txn.setStatus(TransactionStatus.FAILED);
             transactionRepository.save(txn);
 

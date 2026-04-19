@@ -27,4 +27,7 @@ public class Ledger {
     private TransactionType type;
 
     private LocalDateTime createdAt;
+
+    @Column(nullable = false)
+    private String transactionId;
 }
