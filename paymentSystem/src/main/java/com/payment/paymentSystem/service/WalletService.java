@@ -110,9 +110,11 @@ public class WalletService {
             ledgerRepository.save(ledgerDebit);
 
             txn.setStatus(TransactionStatus.SUCCESS);
+            transactionRepository.save(txn);
 
         } catch (Exception e) {
             txn.setStatus(TransactionStatus.FAILED);
+            transactionRepository.save(txn);
             throw e;
         }
     }
