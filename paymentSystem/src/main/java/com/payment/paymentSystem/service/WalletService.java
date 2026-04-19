@@ -45,4 +45,52 @@ public class WalletService {
                 .map(Wallet::getBalance)
                 .orElseThrow(() -> new RuntimeException("Wallet not found"));
     }
+
+    @Transactional
+    public void transferMoney(Long fromUserId, Long toUserId, BigDecimal amount) {
+
+        if (fromUserId.equals(toUserId)) {
+            throw new RuntimeException("Cannot transfer to same user");
+        }
+
+        // 🔒 Lock both wallets
+        Wallet sender = walletRepository.findByUserIdForUpdate(fromUserId)
+                .orElseThrow(() -> new RuntimeException("Sender wallet not found"));
+
+        Wallet receiver = walletRepository.findByUserIdForUpdate(toUserId)
+                .orElseThrow(() -> new RuntimeException("Receiver wallet not found"));
+
+        // 💸 Check balance
+        if (sender.getBalance().compareTo(amount) < 0) {
+            throw new RuntimeException("Insufficient balance");
+        }
+
+        // ➖ Debit
+        sender.setBalance(sender.getBalance().subtract(amount));
+
+        // ➕ Credit
+        receiver.setBalance(receiver.getBalance().add(amount));
+
+        walletRepository.save(sender);
+        walletRepository.save(receiver);
+
+        // 📒 Ledger entries (VERY IMPORTANT)
+
+        Ledger debitEntry = Ledger.builder()
+                .walletId(sender.getId())
+                .amount(amount)
+                .type(TransactionType.DEBIT)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        Ledger creditEntry = Ledger.builder()
+                .walletId(receiver.getId())
+                .amount(amount)
+                .type(TransactionType.CREDIT)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        ledgerRepository.save(debitEntry);
+        ledgerRepository.save(creditEntry);
+    }
 }

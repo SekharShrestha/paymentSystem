@@ -25,4 +25,13 @@ public class WalletController {
     public BigDecimal getBalance(@RequestParam Long userId) {
         return walletService.getBalance(userId);
     }
+
+    @PostMapping("/transfer")
+    public String transfer(@RequestParam Long fromUser,
+                           @RequestParam Long toUser,
+                           @RequestParam BigDecimal amount) {
+
+        walletService.transferMoney(fromUser, toUser, amount);
+        return "Transfer successful";
+    }
 }
