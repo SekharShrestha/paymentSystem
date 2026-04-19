@@ -93,6 +93,21 @@ public class WalletService {
             walletRepository.save(receiver);
 
             // ledger entries...
+            Ledger ledgerCredit = Ledger.builder()
+                    .walletId(receiver.getId())
+                    .amount(amount)
+                    .type(TransactionType.CREDIT)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            Ledger ledgerDebit = Ledger.builder()
+                    .walletId(sender.getId())
+                    .amount(amount)
+                    .type(TransactionType.DEBIT)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            ledgerRepository.save(ledgerCredit);
+            ledgerRepository.save(ledgerDebit);
 
             txn.setStatus(TransactionStatus.SUCCESS);
 
