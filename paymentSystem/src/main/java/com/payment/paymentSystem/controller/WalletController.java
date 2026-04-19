@@ -1,5 +1,6 @@
 package com.payment.paymentSystem.controller;
 
+import com.payment.paymentSystem.dto.TransferRequest;
 import com.payment.paymentSystem.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -27,11 +28,17 @@ public class WalletController {
     }
 
     @PostMapping("/transfer")
-    public String transfer(@RequestParam Long fromUser,
-                           @RequestParam Long toUser,
-                           @RequestParam BigDecimal amount) {
+    public String transferMoney(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody TransferRequest request) {
 
-        walletService.transferMoney(fromUser, toUser, amount);
-        return "Transfer successful";
+        walletService.transferMoney(
+                idempotencyKey,
+                request.getFromUserId(),
+                request.getToUserId(),
+                request.getAmount()
+        );
+
+        return "Transfer processed";
     }
 }

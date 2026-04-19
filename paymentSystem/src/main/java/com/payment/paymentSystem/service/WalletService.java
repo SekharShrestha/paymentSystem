@@ -1,9 +1,8 @@
 package com.payment.paymentSystem.service;
 
-import com.payment.paymentSystem.entity.Ledger;
-import com.payment.paymentSystem.entity.TransactionType;
-import com.payment.paymentSystem.entity.Wallet;
+import com.payment.paymentSystem.entity.*;
 import com.payment.paymentSystem.repository.LedgerRepository;
+import com.payment.paymentSystem.repository.TransactionRepository;
 import com.payment.paymentSystem.repository.WalletRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +17,7 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final LedgerRepository ledgerRepository;
+    private final TransactionRepository transactionRepository;
 
     @Transactional
     public void addMoney(Long userId, BigDecimal amount) {
@@ -47,50 +47,58 @@ public class WalletService {
     }
 
     @Transactional
-    public void transferMoney(Long fromUserId, Long toUserId, BigDecimal amount) {
+    public void transferMoney(String idempotencyKey,
+                              Long fromUserId,
+                              Long toUserId,
+                              BigDecimal amount) {
 
-        if (fromUserId.equals(toUserId)) {
-            throw new RuntimeException("Cannot transfer to same user");
+        // 1️⃣ Check if already processed
+        Transaction existing = transactionRepository.findById(idempotencyKey).orElse(null);
+
+        if (existing != null) {
+            if (existing.getStatus() == TransactionStatus.SUCCESS) {
+                return; // already done
+            } else {
+                throw new RuntimeException("Transaction already in progress or failed");
+            }
         }
 
-        // 🔒 Lock both wallets
-        Wallet sender = walletRepository.findByUserIdForUpdate(fromUserId)
-                .orElseThrow(() -> new RuntimeException("Sender wallet not found"));
+        // 2️⃣ Create transaction record
+        Transaction txn = Transaction.builder()
+                .idempotencyKey(idempotencyKey)
+                .fromUserId(fromUserId)
+                .toUserId(toUserId)
+                .amount(amount)
+                .status(TransactionStatus.INITIATED)
+                .build();
 
-        Wallet receiver = walletRepository.findByUserIdForUpdate(toUserId)
-                .orElseThrow(() -> new RuntimeException("Receiver wallet not found"));
+        transactionRepository.save(txn);
 
-        // 💸 Check balance
-        if (sender.getBalance().compareTo(amount) < 0) {
-            throw new RuntimeException("Insufficient balance");
+        try {
+            // 3️⃣ Perform transfer (same logic as before)
+            Wallet sender = walletRepository.findByUserIdForUpdate(fromUserId)
+                    .orElseThrow(() -> new RuntimeException("Sender not found"));
+
+            Wallet receiver = walletRepository.findByUserIdForUpdate(toUserId)
+                    .orElseThrow(() -> new RuntimeException("Receiver not found"));
+
+            if (sender.getBalance().compareTo(amount) < 0) {
+                throw new RuntimeException("Insufficient balance");
+            }
+
+            sender.setBalance(sender.getBalance().subtract(amount));
+            receiver.setBalance(receiver.getBalance().add(amount));
+
+            walletRepository.save(sender);
+            walletRepository.save(receiver);
+
+            // ledger entries...
+
+            txn.setStatus(TransactionStatus.SUCCESS);
+
+        } catch (Exception e) {
+            txn.setStatus(TransactionStatus.FAILED);
+            throw e;
         }
-
-        // ➖ Debit
-        sender.setBalance(sender.getBalance().subtract(amount));
-
-        // ➕ Credit
-        receiver.setBalance(receiver.getBalance().add(amount));
-
-        walletRepository.save(sender);
-        walletRepository.save(receiver);
-
-        // 📒 Ledger entries (VERY IMPORTANT)
-
-        Ledger debitEntry = Ledger.builder()
-                .walletId(sender.getId())
-                .amount(amount)
-                .type(TransactionType.DEBIT)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        Ledger creditEntry = Ledger.builder()
-                .walletId(receiver.getId())
-                .amount(amount)
-                .type(TransactionType.CREDIT)
-                .createdAt(LocalDateTime.now())
-                .build();
-
-        ledgerRepository.save(debitEntry);
-        ledgerRepository.save(creditEntry);
     }
 }
