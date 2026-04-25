@@ -3,12 +3,15 @@ package com.payment.paymentSystem.service;
 import com.payment.paymentSystem.dto.TransferRequest;
 import com.payment.paymentSystem.entity.*;
 import com.payment.paymentSystem.repository.LedgerRepository;
+import com.payment.paymentSystem.repository.OutboxRepository;
 import com.payment.paymentSystem.repository.TransactionRepository;
 import com.payment.paymentSystem.repository.WalletRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,6 +26,8 @@ public class WalletService {
     private final TransactionRepository transactionRepository;
     private final PaymentProducer producer;
     private final OutboxRepository outboxRepository;
+    private final ObjectMapper objectMapper;
+    private final KafkaTemplate<String, String> kafkaTemplate;
 
     @Transactional
     public void addMoney(Long userId, BigDecimal amount) {
@@ -179,16 +184,16 @@ public class WalletService {
 
         transactionRepository.save(txn);
 
-        // 🔥 publish debit event
-        producer.sendEvent("payment-topic", PaymentEvent.builder()
+        // 2️⃣ Create event object
+        PaymentEvent event = PaymentEvent.builder()
                 .transactionId(key)
                 .fromUserId(req.getFromUserId())
                 .toUserId(req.getToUserId())
                 .amount(req.getAmount())
                 .type("DEBIT")
-                .build());
+                .build();
 
-        // 3️⃣ Save OUTBOX (same transaction)
+        // 3️⃣ Save OUTBOX
         Outbox outbox = Outbox.builder()
                 .aggregateId(key)
                 .type("DEBIT")
@@ -198,6 +203,14 @@ public class WalletService {
                 .build();
 
         outboxRepository.save(outbox);
+    }
+
+    private String convertToJson(PaymentEvent event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (Exception e) {
+            throw new RuntimeException("Serialization failed", e);
+        }
     }
 
     @Scheduled(fixedDelay = 5000)
@@ -219,6 +232,25 @@ public class WalletService {
                         txn.getAmount()
                 );
             } catch (Exception ignored) {
+            }
+        }
+    }
+
+    @Scheduled(fixedDelay = 2000) // every 2 seconds
+    public void publish() {
+
+        List<Outbox> events = outboxRepository.findByPublishedFalse();
+
+        for (Outbox e : events) {
+            try {
+                kafkaTemplate.send("payment-topic", e.getAggregateId(), e.getPayload());
+
+                e.setPublished(true);
+                outboxRepository.save(e);
+
+            } catch (Exception ex) {
+                // log and retry later
+                System.out.println("Failed to publish event: " + e.getId());
             }
         }
     }

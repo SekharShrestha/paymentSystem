@@ -27,20 +27,20 @@ public class WalletController {
         return walletService.getBalance(userId);
     }
 
-    @PostMapping("/transfer")
-    public String transferMoney(
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @RequestBody TransferRequest request) {
-
-        walletService.transferMoney(
-                idempotencyKey,
-                request.getFromUserId(),
-                request.getToUserId(),
-                request.getAmount()
-        );
-
-        return "Transfer processed";
-    }
+//    @PostMapping("/transfer")
+//    public String transferMoney(
+//            @RequestHeader("Idempotency-Key") String idempotencyKey,
+//            @RequestBody TransferRequest request) {
+//
+//        walletService.transferMoney(
+//                idempotencyKey,
+//                request.getFromUserId(),
+//                request.getToUserId(),
+//                request.getAmount()
+//        );
+//
+//        return "Transfer processed";
+//    }
 
     @PostMapping("/transfer")
     public String transfer(
