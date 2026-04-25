@@ -8,6 +8,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDateTime;
 
@@ -19,55 +20,70 @@ public class PaymentConsumer {
     private final LedgerRepository ledgerRepository;
     private final TransactionRepository transactionRepository;
     private final PaymentProducer producer;
+    private ObjectMapper objectMapper;
 
     @KafkaListener(topics = "payment-topic", groupId = "wallet-group")
     @Transactional
-    public void handleDebit(PaymentEvent event) {
+    public void handleDebit(String payload) {
 
-        if (!event.getType().equals("DEBIT")) return;
+        try {
+            // 🔥 Convert JSON → Object
+            PaymentEvent event = objectMapper.readValue(payload, PaymentEvent.class);
 
-        Transaction txn = transactionRepository.findById(event.getTransactionId())
-                .orElseThrow();
+            if (!event.getType().equals("DEBIT")) return;
 
-        if (txn.getStatus() != TransactionStatus.INITIATED) return;
+            Transaction txn = transactionRepository.findById(event.getTransactionId())
+                    .orElseThrow();
 
-        Wallet sender = walletRepository.findByUserIdForUpdate(event.getFromUserId())
-                .orElseThrow();
+            if (txn.getStatus() != TransactionStatus.INITIATED) return;
 
-        if (sender.getBalance().compareTo(event.getAmount()) < 0) {
-            txn.setStatus(TransactionStatus.FAILED);
+            Wallet sender = walletRepository.findByUserIdForUpdate(event.getFromUserId())
+                    .orElseThrow();
+
+            if (sender.getBalance().compareTo(event.getAmount()) < 0) {
+                txn.setStatus(TransactionStatus.FAILED);
+                transactionRepository.save(txn);
+                return;
+            }
+
+            // idempotent check
+            boolean alreadyDebited = ledgerRepository
+                    .existsByTransactionIdAndType(event.getTransactionId(), TransactionType.DEBIT);
+
+            if (!alreadyDebited) {
+                sender.setBalance(sender.getBalance().subtract(event.getAmount()));
+                walletRepository.save(sender);
+
+                ledgerRepository.save(Ledger.builder()
+                        .walletId(sender.getId())
+                        .transactionId(event.getTransactionId())
+                        .amount(event.getAmount())
+                        .type(TransactionType.DEBIT)
+                        .createdAt(LocalDateTime.now())
+                        .build());
+            }
+
+            txn.setStatus(TransactionStatus.DEBIT_DONE);
             transactionRepository.save(txn);
-            return;
-        }
 
-        // idempotent check
-        boolean alreadyDebited = ledgerRepository
-                .existsByTransactionIdAndType(event.getTransactionId(), TransactionType.DEBIT);
-
-        if (!alreadyDebited) {
-            sender.setBalance(sender.getBalance().subtract(event.getAmount()));
-            walletRepository.save(sender);
-
-            ledgerRepository.save(Ledger.builder()
-                    .walletId(sender.getId())
+            // 🔥 publish CREDIT event
+            PaymentEvent creditEvent = PaymentEvent.builder()
                     .transactionId(event.getTransactionId())
+                    .fromUserId(event.getFromUserId())
+                    .toUserId(event.getToUserId())
                     .amount(event.getAmount())
-                    .type(TransactionType.DEBIT)
-                    .createdAt(LocalDateTime.now())
-                    .build());
+                    .type("CREDIT")
+                    .build();
+
+            producer.sendEvent(
+                    "payment-topic",
+                    creditEvent.getTransactionId(),
+                    objectMapper.writeValueAsString(creditEvent)
+            );
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to process event", e);
         }
-
-        txn.setStatus(TransactionStatus.DEBIT_DONE);
-        transactionRepository.save(txn);
-
-        // 🔥 publish credit event
-        producer.sendEvent("payment-topic", PaymentEvent.builder()
-                .transactionId(event.getTransactionId())
-                .fromUserId(event.getFromUserId())
-                .toUserId(event.getToUserId())
-                .amount(event.getAmount())
-                .type("CREDIT")
-                .build());
     }
 
     @KafkaListener(topics = "payment-topic", groupId = "wallet-group")
