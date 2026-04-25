@@ -203,7 +203,7 @@ public class WalletService {
                 .build();
 
         outboxRepository.save(outbox);
-        transferMoney(key, req.getFromUserId(), req.getToUserId(), req.getAmount());
+//        transferMoney(key, req.getFromUserId(), req.getToUserId(), req.getAmount());
     }
 
     private String convertToJson(PaymentEvent event) {
@@ -214,45 +214,5 @@ public class WalletService {
         }
     }
 
-    @Scheduled(fixedDelay = 5000)
-    public void retryPendingTransactions() {
 
-        List<Transaction> txns = transactionRepository
-                .findByStatusIn(List.of(
-                        TransactionStatus.INITIATED,
-                        TransactionStatus.DEBIT_DONE
-                ));
-
-        for (Transaction txn : txns) {
-
-            try {
-                transferMoney(
-                        txn.getIdempotencyKey(),
-                        txn.getFromUserId(),
-                        txn.getToUserId(),
-                        txn.getAmount()
-                );
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    @Scheduled(fixedDelay = 2000) // every 2 seconds
-    public void publish() {
-
-        List<Outbox> events = outboxRepository.findByPublishedFalse();
-
-        for (Outbox e : events) {
-            try {
-                kafkaTemplate.send("payment-topic", e.getAggregateId(), e.getPayload());
-
-                e.setPublished(true);
-                outboxRepository.save(e);
-
-            } catch (Exception ex) {
-                // log and retry later
-                System.out.println("Failed to publish event: " + e.getId());
-            }
-        }
-    }
 }
