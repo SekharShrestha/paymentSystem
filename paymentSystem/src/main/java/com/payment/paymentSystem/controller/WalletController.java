@@ -41,4 +41,13 @@ public class WalletController {
 
         return "Transfer processed";
     }
+
+    @PostMapping("/transfer")
+    public String transfer(
+            @RequestHeader("Idempotency-Key") String key,
+            @RequestBody TransferRequest request) {
+
+        walletService.initiateTransaction(key, request);
+        return "Transaction initiated";
+    }
 }

@@ -1,15 +1,18 @@
 package com.payment.paymentSystem.service;
 
+import com.payment.paymentSystem.dto.TransferRequest;
 import com.payment.paymentSystem.entity.*;
 import com.payment.paymentSystem.repository.LedgerRepository;
 import com.payment.paymentSystem.repository.TransactionRepository;
 import com.payment.paymentSystem.repository.WalletRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +21,8 @@ public class WalletService {
     private final WalletRepository walletRepository;
     private final LedgerRepository ledgerRepository;
     private final TransactionRepository transactionRepository;
+    private final PaymentProducer producer;
+    private final OutboxRepository outboxRepository;
 
     @Transactional
     public void addMoney(Long userId, BigDecimal amount) {
@@ -156,6 +161,65 @@ public class WalletService {
             transactionRepository.save(txn);
 
             throw e;
+        }
+    }
+
+    @Transactional
+    public void initiateTransaction(String key, TransferRequest req) {
+
+        if (transactionRepository.existsById(key)) return;
+
+        Transaction txn = Transaction.builder()
+                .idempotencyKey(key)
+                .fromUserId(req.getFromUserId())
+                .toUserId(req.getToUserId())
+                .amount(req.getAmount())
+                .status(TransactionStatus.INITIATED)
+                .build();
+
+        transactionRepository.save(txn);
+
+        // 🔥 publish debit event
+        producer.sendEvent("payment-topic", PaymentEvent.builder()
+                .transactionId(key)
+                .fromUserId(req.getFromUserId())
+                .toUserId(req.getToUserId())
+                .amount(req.getAmount())
+                .type("DEBIT")
+                .build());
+
+        // 3️⃣ Save OUTBOX (same transaction)
+        Outbox outbox = Outbox.builder()
+                .aggregateId(key)
+                .type("DEBIT")
+                .payload(convertToJson(event))
+                .published(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        outboxRepository.save(outbox);
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    public void retryPendingTransactions() {
+
+        List<Transaction> txns = transactionRepository
+                .findByStatusIn(List.of(
+                        TransactionStatus.INITIATED,
+                        TransactionStatus.DEBIT_DONE
+                ));
+
+        for (Transaction txn : txns) {
+
+            try {
+                transferMoney(
+                        txn.getIdempotencyKey(),
+                        txn.getFromUserId(),
+                        txn.getToUserId(),
+                        txn.getAmount()
+                );
+            } catch (Exception ignored) {
+            }
         }
     }
 }
