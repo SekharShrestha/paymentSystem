@@ -56,118 +56,118 @@ public class WalletService {
                 .orElseThrow(() -> new RuntimeException("Wallet not found"));
     }
 
-    @Transactional
-    public void transferMoney(String idempotencyKey,
-                              Long fromUserId,
-                              Long toUserId,
-                              BigDecimal amount) {
-
-        Transaction txn = transactionRepository.findById(idempotencyKey).orElse(null);
-
-        if (txn == null) {
-            txn = Transaction.builder()
-                    .idempotencyKey(idempotencyKey)
-                    .fromUserId(fromUserId)
-                    .toUserId(toUserId)
-                    .amount(amount)
-                    .status(TransactionStatus.INITIATED)
-                    .build();
-
-            transactionRepository.save(txn);
-        }
-
-        try {
-
-            // 🔒 Ordered locking
-            Long first = Math.min(fromUserId, toUserId);
-            Long second = Math.max(fromUserId, toUserId);
-
-            Wallet firstWallet = walletRepository.findByUserIdForUpdate(first)
-                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
-
-            Wallet secondWallet = walletRepository.findByUserIdForUpdate(second)
-                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
-
-            Wallet sender = fromUserId.equals(first) ? firstWallet : secondWallet;
-            Wallet receiver = toUserId.equals(first) ? firstWallet : secondWallet;
-
-            // =========================
-            // 🧠 STEP 1: DEBIT (IDEMPOTENT)
-            // =========================
-
-            if (txn.getStatus() == TransactionStatus.INITIATED) {
-
-                boolean alreadyDebited = ledgerRepository
-                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.DEBIT);
-
-                if (!alreadyDebited) {
-
-                    if (sender.getBalance().compareTo(amount) < 0) {
-                        throw new RuntimeException("Insufficient balance");
-                    }
-
-                    sender.setBalance(sender.getBalance().subtract(amount));
-                    walletRepository.save(sender);
-
-                    Ledger debit = Ledger.builder()
-                            .walletId(sender.getId())
-                            .transactionId(idempotencyKey)
-                            .amount(amount)
-                            .type(TransactionType.DEBIT)
-                            .createdAt(LocalDateTime.now())
-                            .build();
-
-                    ledgerRepository.save(debit);
-                }
-
-                txn.setStatus(TransactionStatus.DEBIT_DONE);
-                transactionRepository.save(txn);
-            }
-
-            // =========================
-            // 🧠 STEP 2: CREDIT (IDEMPOTENT)
-            // =========================
-
-            if (txn.getStatus() == TransactionStatus.DEBIT_DONE) {
-
-                boolean alreadyCredited = ledgerRepository
-                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.CREDIT);
-
-                if (!alreadyCredited) {
-
-                    receiver.setBalance(receiver.getBalance().add(amount));
-                    walletRepository.save(receiver);
-
-                    Ledger credit = Ledger.builder()
-                            .walletId(receiver.getId())
-                            .transactionId(idempotencyKey)
-                            .amount(amount)
-                            .type(TransactionType.CREDIT)
-                            .createdAt(LocalDateTime.now())
-                            .build();
-
-                    ledgerRepository.save(credit);
-                }
-
-                txn.setStatus(TransactionStatus.CREDIT_DONE);
-                transactionRepository.save(txn);
-            }
-
-            // =========================
-            // 🧠 FINAL STEP
-            // =========================
-
-            txn.setStatus(TransactionStatus.SUCCESS);
-            transactionRepository.save(txn);
-
-        } catch (Exception e) {
-
-            txn.setStatus(TransactionStatus.FAILED);
-            transactionRepository.save(txn);
-
-            throw e;
-        }
-    }
+//    @Transactional
+//    public void transferMoney(String idempotencyKey,
+//                              Long fromUserId,
+//                              Long toUserId,
+//                              BigDecimal amount) {
+//
+//        Transaction txn = transactionRepository.findById(idempotencyKey).orElse(null);
+//
+//        if (txn == null) {
+//            txn = Transaction.builder()
+//                    .idempotencyKey(idempotencyKey)
+//                    .fromUserId(fromUserId)
+//                    .toUserId(toUserId)
+//                    .amount(amount)
+//                    .status(TransactionStatus.INITIATED)
+//                    .build();
+//
+//            transactionRepository.save(txn);
+//        }
+//
+//        try {
+//
+//            // 🔒 Ordered locking
+//            Long first = Math.min(fromUserId, toUserId);
+//            Long second = Math.max(fromUserId, toUserId);
+//
+//            Wallet firstWallet = walletRepository.findByUserIdForUpdate(first)
+//                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
+//
+//            Wallet secondWallet = walletRepository.findByUserIdForUpdate(second)
+//                    .orElseThrow(() -> new RuntimeException("Wallet not found"));
+//
+//            Wallet sender = fromUserId.equals(first) ? firstWallet : secondWallet;
+//            Wallet receiver = toUserId.equals(first) ? firstWallet : secondWallet;
+//
+//            // =========================
+//            // 🧠 STEP 1: DEBIT (IDEMPOTENT)
+//            // =========================
+//
+//            if (txn.getStatus() == TransactionStatus.INITIATED) {
+//
+//                boolean alreadyDebited = ledgerRepository
+//                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.DEBIT);
+//
+//                if (!alreadyDebited) {
+//
+//                    if (sender.getBalance().compareTo(amount) < 0) {
+//                        throw new RuntimeException("Insufficient balance");
+//                    }
+//
+//                    sender.setBalance(sender.getBalance().subtract(amount));
+//                    walletRepository.save(sender);
+//
+//                    Ledger debit = Ledger.builder()
+//                            .walletId(sender.getId())
+//                            .transactionId(idempotencyKey)
+//                            .amount(amount)
+//                            .type(TransactionType.DEBIT)
+//                            .createdAt(LocalDateTime.now())
+//                            .build();
+//
+//                    ledgerRepository.save(debit);
+//                }
+//
+//                txn.setStatus(TransactionStatus.DEBIT_DONE);
+//                transactionRepository.save(txn);
+//            }
+//
+//            // =========================
+//            // 🧠 STEP 2: CREDIT (IDEMPOTENT)
+//            // =========================
+//
+//            if (txn.getStatus() == TransactionStatus.DEBIT_DONE) {
+//
+//                boolean alreadyCredited = ledgerRepository
+//                        .existsByTransactionIdAndType(idempotencyKey, TransactionType.CREDIT);
+//
+//                if (!alreadyCredited) {
+//
+//                    receiver.setBalance(receiver.getBalance().add(amount));
+//                    walletRepository.save(receiver);
+//
+//                    Ledger credit = Ledger.builder()
+//                            .walletId(receiver.getId())
+//                            .transactionId(idempotencyKey)
+//                            .amount(amount)
+//                            .type(TransactionType.CREDIT)
+//                            .createdAt(LocalDateTime.now())
+//                            .build();
+//
+//                    ledgerRepository.save(credit);
+//                }
+//
+//                txn.setStatus(TransactionStatus.CREDIT_DONE);
+//                transactionRepository.save(txn);
+//            }
+//
+//            // =========================
+//            // 🧠 FINAL STEP
+//            // =========================
+//
+//            txn.setStatus(TransactionStatus.SUCCESS);
+//            transactionRepository.save(txn);
+//
+//        } catch (Exception e) {
+//
+//            txn.setStatus(TransactionStatus.FAILED);
+//            transactionRepository.save(txn);
+//
+//            throw e;
+//        }
+//    }
 
     @Transactional
     public void initiateTransaction(String key, Long fromUserId, TransferRequest req) {
@@ -203,7 +203,121 @@ public class WalletService {
                 .build();
 
         outboxRepository.save(outbox);
-        transferMoney(key, fromUserId, req.getToUserId(), req.getAmount());
+//        transferMoney(key, fromUserId, req.getToUserId(), req.getAmount());
+
+        // 🔥publish immediately
+        try {
+//            kafkaTemplate.send("payment-topic", key, convertToJson(event)).get();
+            producer.sendEvent(
+                    "payment-topic",
+                    key,
+                    convertToJson(event)
+            );
+
+            outbox.setPublished(true);
+            outboxRepository.save(outbox);
+
+        } catch (Exception e) {
+            // let scheduler retry later
+            System.out.println("Kafka publish failed, will retry");
+        }
+    }
+
+    // 🔻 DEBIT FLOW
+    // =========================
+    @Transactional
+    public void processDebit(PaymentEvent event) {
+
+        Transaction txn = transactionRepository.findById(event.getTransactionId())
+                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+
+        // Already processed or invalid state
+        if (txn.getStatus() != TransactionStatus.INITIATED) return;
+
+        Wallet sender = walletRepository.findByUserIdForUpdate(event.getFromUserId())
+                .orElseThrow(() -> new RuntimeException("Sender wallet not found"));
+
+        // Insufficient balance
+        if (sender.getBalance().compareTo(event.getAmount()) < 0) {
+            txn.setStatus(TransactionStatus.FAILED);
+            transactionRepository.save(txn);
+            return;
+        }
+
+        // Idempotency check
+        boolean alreadyDebited = ledgerRepository
+                .existsByTransactionIdAndType(event.getTransactionId(), TransactionType.DEBIT);
+
+        if (!alreadyDebited) {
+            sender.setBalance(sender.getBalance().subtract(event.getAmount()));
+            walletRepository.save(sender);
+
+            ledgerRepository.save(Ledger.builder()
+                    .walletId(sender.getId())
+                    .transactionId(event.getTransactionId())
+                    .amount(event.getAmount())
+                    .type(TransactionType.DEBIT)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+        }
+
+        txn.setStatus(TransactionStatus.DEBIT_DONE);
+        transactionRepository.save(txn);
+
+        // 🔥 Emit CREDIT event
+        PaymentEvent creditEvent = PaymentEvent.builder()
+                .transactionId(event.getTransactionId())
+                .fromUserId(event.getFromUserId())
+                .toUserId(event.getToUserId())
+                .amount(event.getAmount())
+                .type("CREDIT")
+                .build();
+
+        try {
+            producer.sendEvent(
+                    "payment-topic",
+                    creditEvent.getTransactionId(),
+                    objectMapper.writeValueAsString(creditEvent)
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to publish CREDIT event", e);
+        }
+    }
+
+    // =========================
+    // 🔺 CREDIT FLOW
+    // =========================
+    @Transactional
+    public void processCredit(PaymentEvent event) {
+
+        Transaction txn = transactionRepository.findById(event.getTransactionId())
+                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+
+        // Ensure debit completed first
+        if (txn.getStatus() != TransactionStatus.DEBIT_DONE) return;
+
+        Wallet receiver = walletRepository.findByUserIdForUpdate(event.getToUserId())
+                .orElseThrow(() -> new RuntimeException("Receiver wallet not found"));
+
+        // Idempotency check
+        boolean alreadyCredited = ledgerRepository
+                .existsByTransactionIdAndType(event.getTransactionId(), TransactionType.CREDIT);
+
+        if (!alreadyCredited) {
+            receiver.setBalance(receiver.getBalance().add(event.getAmount()));
+            walletRepository.save(receiver);
+
+            ledgerRepository.save(Ledger.builder()
+                    .walletId(receiver.getId())
+                    .transactionId(event.getTransactionId())
+                    .amount(event.getAmount())
+                    .type(TransactionType.CREDIT)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+        }
+
+        txn.setStatus(TransactionStatus.SUCCESS);
+        transactionRepository.save(txn);
     }
 
     private String convertToJson(PaymentEvent event) {
