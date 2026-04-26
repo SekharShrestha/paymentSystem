@@ -203,7 +203,7 @@ public class WalletService {
                 .build();
 
         outboxRepository.save(outbox);
-//        transferMoney(key, req.getFromUserId(), req.getToUserId(), req.getAmount());
+        transferMoney(key, fromUserId, req.getToUserId(), req.getAmount());
     }
 
     private String convertToJson(PaymentEvent event) {
