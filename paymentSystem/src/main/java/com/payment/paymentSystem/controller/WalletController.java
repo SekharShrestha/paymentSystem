@@ -1,6 +1,7 @@
 package com.payment.paymentSystem.controller;
 
 import com.payment.paymentSystem.dto.TransferRequest;
+import com.payment.paymentSystem.security.SecurityUtil;
 import com.payment.paymentSystem.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -42,12 +43,28 @@ public class WalletController {
 //        return "Transfer processed";
 //    }
 
+//    @PostMapping("/transfer")
+//    public String transfer(
+//            @RequestHeader("Idempotency-Key") String key,
+//            @RequestBody TransferRequest request) {
+//
+//        walletService.initiateTransaction(key, request);
+//        return "Transaction initiated";
+//    }
+
     @PostMapping("/transfer")
     public String transfer(
             @RequestHeader("Idempotency-Key") String key,
             @RequestBody TransferRequest request) {
 
-        walletService.initiateTransaction(key, request);
+        Long fromUserId = SecurityUtil.getCurrentUserId();
+
+        walletService.initiateTransaction(
+                key,
+                fromUserId,
+                request
+        );
+
         return "Transaction initiated";
     }
 }

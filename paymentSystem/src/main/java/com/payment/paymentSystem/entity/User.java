@@ -1,6 +1,7 @@
 package com.payment.paymentSystem.entity;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
 import lombok.*;
 
 @Entity
@@ -17,5 +18,8 @@ public class User {
     private Long id;
 
     @Column(nullable = false, unique = true)
+    @Email
     private String email;
+
+    private String password;
 }

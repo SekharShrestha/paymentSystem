@@ -170,13 +170,13 @@ public class WalletService {
     }
 
     @Transactional
-    public void initiateTransaction(String key, TransferRequest req) {
+    public void initiateTransaction(String key, Long fromUserId, TransferRequest req) {
 
         if (transactionRepository.existsById(key)) return;
 
         Transaction txn = Transaction.builder()
                 .idempotencyKey(key)
-                .fromUserId(req.getFromUserId())
+                .fromUserId(fromUserId)
                 .toUserId(req.getToUserId())
                 .amount(req.getAmount())
                 .status(TransactionStatus.INITIATED)
@@ -187,7 +187,7 @@ public class WalletService {
         // 2️⃣ Create event object
         PaymentEvent event = PaymentEvent.builder()
                 .transactionId(key)
-                .fromUserId(req.getFromUserId())
+                .fromUserId(fromUserId)
                 .toUserId(req.getToUserId())
                 .amount(req.getAmount())
                 .type("DEBIT")
