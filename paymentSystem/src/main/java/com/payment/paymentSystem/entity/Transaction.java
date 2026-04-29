@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Positive;
 import lombok.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "transactions")
@@ -22,6 +23,7 @@ public class Transaction {
     private Long fromUserId;
     private Long toUserId;
     private BigDecimal amount;
+    private LocalDateTime createdAt;
 
     @Enumerated(EnumType.STRING)
     private TransactionStatus status;

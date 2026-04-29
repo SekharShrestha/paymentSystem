@@ -1,6 +1,7 @@
 package com.payment.paymentSystem.config;
 
 import com.payment.paymentSystem.entity.Outbox;
+import com.payment.paymentSystem.entity.PaymentEvent;
 import com.payment.paymentSystem.entity.Transaction;
 import com.payment.paymentSystem.entity.TransactionStatus;
 import com.payment.paymentSystem.repository.LedgerRepository;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
@@ -24,32 +26,47 @@ public class Schedulers {
 
 
     private final TransactionRepository transactionRepository;
-    private final WalletService walletService;
+    private final PaymentProducer producer;
     private final OutboxRepository outboxRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
-//    @Scheduled(fixedDelay = 5000)
-//    public void retryPendingTransactions() {
-//
-//        List<Transaction> txns = transactionRepository
-//                .findByStatusIn(List.of(
-//                        TransactionStatus.INITIATED,
+    @Scheduled(fixedDelay = 5000)
+    public void retryPendingTransactions() {
+
+        List<Transaction> txns = transactionRepository
+                .findByStatusAndCreatedAtBefore(
+                        TransactionStatus.INITIATED,
 //                        TransactionStatus.DEBIT_DONE
-//                ));
-//
-//        for (Transaction txn : txns) {
-//
-//            try {
-//                walletService.transferMoney(
-//                        txn.getIdempotencyKey(),
-//                        txn.getFromUserId(),
-//                        txn.getToUserId(),
-//                        txn.getAmount()
-//                );
-//            } catch (Exception ignored) {
-//            }
-//        }
-//    }
+                        LocalDateTime.now().minusMinutes(5));
+
+        for (Transaction txn : txns) {
+
+            try {
+                // 🔥 recreate DEBIT event
+                PaymentEvent event = PaymentEvent.builder()
+                        .transactionId(txn.getIdempotencyKey())
+                        .fromUserId(txn.getFromUserId())
+                        .toUserId(txn.getToUserId())
+                        .amount(txn.getAmount())
+                        .type("DEBIT")
+                        .build();
+
+                // 🔥 send again to Kafka
+                producer.sendEvent(
+                        "payment-topic",
+                        txn.getIdempotencyKey(),
+                        objectMapper.writeValueAsString(event)
+                );
+
+                System.out.println("Recovered txn: " + txn.getIdempotencyKey());
+
+            } catch (Exception e) {
+                System.out.println("Recovery failed for txn: " + txn.getIdempotencyKey());
+            }
+
+        }
+    }
 
     @Scheduled(fixedDelay = 2000) // every 2 seconds
     public void publish() {

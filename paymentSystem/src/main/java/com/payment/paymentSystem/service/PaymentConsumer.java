@@ -41,5 +41,10 @@ public class PaymentConsumer {
         }
     }
 
+    @KafkaListener(topics = "payment-topic-dlq", groupId = "dlq-group")
+    public void consumeDLQ(String payload) {
+        System.out.println("🔥 DLQ EVENT: " + payload);
+    }
+
 
 }

@@ -2,6 +2,7 @@ package com.payment.paymentSystem.config;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.context.annotation.Bean;
@@ -9,6 +10,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.*;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -55,5 +59,17 @@ public class KafkaConfig {
         factory.setConsumerFactory(consumerFactory());
 
         return factory;
+    }
+
+    @Bean
+    public DefaultErrorHandler errorHandler(KafkaTemplate<String, String> template) {
+
+        DeadLetterPublishingRecoverer recoverer =
+                new DeadLetterPublishingRecoverer(template,
+                        (record, ex) -> new TopicPartition("payment-topic-dlq", record.partition()));
+
+        FixedBackOff backOff = new FixedBackOff(2000L, 5); // retry 5 times
+
+        return new DefaultErrorHandler(recoverer, backOff);
     }
 }
