@@ -2,6 +2,7 @@ package com.payment.paymentSystem.security;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -68,7 +69,7 @@ public class JwtUtil {
     }
 
     private Key getSigningKey() {
-        Key key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+        Key key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
         return key;
     }
 
